@@ -1,0 +1,173 @@
+{
+  "title_en": "Dynamic Resource Manager for Automating Deployments in the Computing Continuum",
+  "title_zh": "面向计算连续体的动态资源管理器：跨云、雾、边、端的自动化部署",
+  "venue": "arXiv:2411.16697 [cs.DC] · 2024.11",
+  "authors": "Zahra Najafabadi Samani 等 · University of Innsbruck",
+  "slides": [
+    {
+      "type": "cover"
+    },
+    {
+      "type": "points",
+      "title": "研究背景",
+      "lead": "从云到端：<r>计算连续体</r>（Computing Continuum）",
+      "lead_size": 32,
+      "size": 23,
+      "bullets": [
+        "**背景**：IoT 与实时应用把计算从云端下沉到边缘，形成云、雾、边、端一体的异构资源池",
+        "**特点**：硬件异构（NUC / 树莓派 / 云主机）、平台异构（OpenFaaS / K8s / Lambda / EC2）、网络时延相差一个量级",
+        "**目标**：让应用<r>按 SLO 选资源、自动部署、违约即重调度</r>，而不是为每个平台各写一套脚本",
+        "**挑战一**：一套管理器如何同时驱动四类异构平台，并把部署时延压到可接受范围？",
+        "**挑战二**：部署完成之后，<r>谁来持续守着 SLO</r>，在违约发生的第一时间发现并纠正？"
+      ]
+    },
+    {
+      "type": "columns",
+      "title": "研究现状",
+      "size": 18,
+      "columns": [
+        {
+          "head": "云侧资源管理器",
+          "lines": [
+            "Xioadi 等[6]：微服务化 RM，用内存数据网格打破共享存储瓶颈",
+            "Aspir[5]：多云统一层，按客户约束选资源"
+          ],
+          "tail": "缺陷：不处理 SLO 违约；不支持 Serverless 与容器化应用"
+        },
+        {
+          "head": "边缘侧资源管理器",
+          "lines": [
+            "Wang 等[9]：节点 + 服务器两级管理器，按优先级准入",
+            "Abuibaid 等[10]：面向故障恢复的动态重调度"
+          ],
+          "tail": "缺陷：缺少监控与节点故障处理；无自动化基础设施部署"
+        },
+        {
+          "head": "连续体资源管理器",
+          "lines": [
+            "Morichetta[3]：三层意图驱动，面向 Serverless",
+            "Caballer[4]：IaC + K8s 编排；Jansen[11]：多环境自动部署",
+            "Samani[8,12]：按 SLO 聚类降浪费；Tusa[13]：图模型 + 优化选资源"
+          ],
+          "tail": "缺陷：不能识别/处置 SLO 违约与应用故障；部分不支持 Serverless"
+        }
+      ],
+      "footer": "**共同局限**：多数工作只覆盖云或边；少数覆盖全连续体的，又只支持单一资源类型——<r>异构平台的优势根本用不上</r>",
+      "footer_size": 21
+    },
+    {
+      "type": "figure",
+      "title": "研究方法（一）：总体架构",
+      "image": "figs/fig1_arch.png",
+      "side": "right",
+      "img_w": 8.35,
+      "text_w": 3.95,
+      "size": 19,
+      "caption": "Fig. 1  架构设计（原论文）",
+      "bullets": [
+        "**定位**：跑在 K8s 之上的资源管理器，四层解耦，用一套 API 管理多云多平台资源",
+        "**持久层**：PostgreSQL 存用户数据与资源/服务/函数元数据，仅核心层可访问",
+        "**核心层**：Eclipse Vert.x 响应式框架，7 个 Vertex 经 Event Bus 以发布订阅、点对点、请求响应通信",
+        "**监控层**：VictoriaMetrics + MetricsQL（PromQL 超集），支持拉取与推送、长期存储",
+        "**GUI 层**：React / Next.js + Ant Design，内嵌 Grafana 看板"
+      ]
+    },
+    {
+      "type": "points",
+      "title": "研究方法（二）：四个关键设计",
+      "lead": "把“部署—监控—纠偏”做成<r>闭环</r>",
+      "lead_size": 30,
+      "size": 24,
+      "bullets": [
+        "**① 统一抽象**：用 Terraform provider 屏蔽 K8s / OpenFaaS / Lambda / EC2 的差异，一次请求同时创建计算、网络与运行时",
+        "**② 部署提速**：预拉取镜像 + 常驻 tiny paused 容器，启停服务时<r>不再重复拉取镜像</r>，把冷启动成本压到最低",
+        "**③ 指标补齐**：Monitoring Vertex 补采监控层拿不到的资源成本、区域时延与 K8s Metrics Server 指标，统一转成 OpenTSDB 对象写入 VictoriaMetrics",
+        "**④ SLO 闭环**：Alerting Vertex 周期校验资源真实状态，向客户端注册的 HTTP 端点推送告警，触发<r>重新分配资源</r>"
+      ]
+    },
+    {
+      "type": "figure",
+      "title": "实验设置",
+      "image": "figs/table1.png",
+      "side": "right",
+      "img_w": 8.1,
+      "text_w": 4.0,
+      "size": 18,
+      "caption": "Table 1  计算连续体测试床（原论文）",
+      "bullets": [
+        "**测试床**：边缘 3 节点（Intel NUC + 2×树莓派）、雾 7 节点 K8s 集群、云 AWS EC2 t2.large + Lambda（us-east-1 / us-west-2）",
+        "**负载**：2 个 Python 函数（睡 1 s / 立即返回）+ 1 个 nginx 容器服务",
+        "**指标**：部署/终止时延、响应时间、CPU 与内存占用、SLO 反应时间、函数调用 RTT",
+        "**三组场景**：① 不同资源组合的部署开销 ② SLO 违约反应时间 ③ 384 并发下的调用 RTT"
+      ]
+    },
+    {
+      "type": "figure_stack",
+      "title": "实验结果（一）：部署开销由资源类型决定",
+      "img_w": 7.55,
+      "text_w": 4.15,
+      "size": 18,
+      "images": [
+        {
+          "path": "figs/fig2.png",
+          "caption": "Fig. 2  平均部署与终止时间"
+        },
+        {
+          "path": "figs/fig4.png",
+          "caption": "Fig. 4  不同资源类型的 CPU 与内存占用"
+        }
+      ],
+      "bullets": [
+        "**OpenFaaS 最快，K8s 次之**：只需拉镜像并初始化容器",
+        "**Lambda 明显更慢**：跨区网络 + 更复杂的初始化链路",
+        "**EC2 最差**：启动 <r>~200 s</r>、终止 <r>~65 s</r>，因为要现装 OpenFaaS 与 Node Exporter",
+        "**并发上升**：部署时间随之增加，终止时间基本不变",
+        "**资源占用**：OpenFaaS / K8s 更轻；Lambda 与 EC2 更吃 CPU、内存（AWS provider 更重）"
+      ]
+    },
+    {
+      "type": "figure_pair",
+      "title": "实验结果（二）：SLO 闭环快，开销几乎为零",
+      "img_h": 2.95,
+      "size": 21,
+      "images": [
+        {
+          "path": "figs/fig5.png",
+          "caption": "Fig. 5  SLO 违约反应时间"
+        },
+        {
+          "path": "figs/fig6.png",
+          "caption": "Fig. 6  函数调用往返时延（RTT）"
+        }
+      ],
+      "bullets": [
+        "**反应时间稳定在 0–5 s**，并发从 1 增到 4 几乎不变：违约能被快速发现，且不受部署负载影响",
+        "**RTT 与 Python HTTP client 相当甚至更低**：管理器本身<r>几乎不引入额外开销</r>",
+        "12 并发以上 EC2 与 OpenFaaS 的 RTT 抬升，受 CPU 核数限制；Lambda 按设计可弹性扩展"
+      ]
+    },
+    {
+      "type": "two_col",
+      "title": "结论与不足",
+      "size": 19,
+      "left": {
+        "head": "结论",
+        "bullets": [
+          "在 K8s 之上用 Vert.x 实现<r>跨云—雾—边的资源管理器</r>，把部署、监控、告警收敛到一套 API",
+          "四层解耦 + IaC，使同一份请求可落到 OpenFaaS / K8s / Lambda / EC2 四类资源",
+          "真实测试床验证：部署可自动化、SLO 违约可被发现，且<r>附加开销可忽略</r>"
+        ]
+      },
+      "right": {
+        "head": "不足",
+        "bullets": [
+          "**规模有限**：13 个资源、单集群，未做多租户与大规模压力测试",
+          "**SLO 维度单一**：只验证时延类 SLO，未涉及吞吐、成本、可用性及其权衡",
+          "**事后响应**：违约后才重调度，无预测式迁移，中断时长未量化",
+          "**基线偏弱**：只与 Python HTTP client 比，未与同类连续体管理器端到端对比",
+          "**依赖 IaC**：EC2 200 s 的部署代价说明 provider 与镜像分发仍是瓶颈"
+        ]
+      }
+    }
+  ]
+}
