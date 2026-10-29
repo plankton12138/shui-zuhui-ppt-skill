@@ -132,6 +132,52 @@ python scripts/extract_figures.py paper.pdf page --pages 1-12 --dpi 150 --outdir
 
 ---
 
+## 使用样例
+
+装好之后，主流用法是**对 agent 说一句话**（WorkBuddy / Claude Code 等，把路径换成你自己的）。下面这几种覆盖了绝大多数场景：
+
+### 样例 1：最省事——丢个 PDF 就行
+
+> 帮我把这篇论文做成组会 PPT：`D:/papers/xxx.pdf`
+
+agent 全自动走完：读论文 → 裁原图 → 写文案 → 生成 pptx → 渲图自查 → 附逐页讲稿。适合"今晚就要，别问我细节"。
+
+### 样例 2：控制篇幅与侧重
+
+> 把 `D:/papers/xxx.pdf` 做成组会汇报，重点讲方法设计，实验并成一页，总共 8 页左右。
+
+页数和详略都听你的；骨架不变，省得自己想结构。
+
+### 样例 3：按场合定制讲稿
+
+> 下周三组会讲这篇，给我 15 分钟的版本：`xxx.pdf`，讲稿按 15 分钟分配时间。
+
+产出除了 pptx 还会带一份逐页口播稿 + 常见追问的备答。
+
+### 样例 4：改一版已有的
+
+> 第三页的现状对照，路线 B 换成 2024 年那篇 follow-up；第七页的图换成 Fig. 6。
+
+内容都在 `deck.json` 里，agent 改完重跑两条命令即可，版式不会乱——改十版也不漂。
+
+### 样例 5：强调色分工（红 + 蓝）
+
+> 讲 `xxx.pdf`，现状页把每条路线的"缺陷"标红、"已有优势"标蓝，其他页正常。
+
+对应到文案里的行内标记：`<r>缺陷</r>`、`<b>优势</b>`。红是默认重点，蓝只在需要区分两类信息时用。
+
+### 样例 6：绕过对话，直接命令行
+
+```bash
+python scripts/extract_figures.py paper.pdf auto --caption "Fig. 3" --out figs/fig3.png
+python scripts/build_deck.py deck.json -o out.pptx
+python scripts/render_deck.py out.pptx --outdir preview
+```
+
+适合只想借排版引擎、文案自己写的场合——deck.json 的字段见下方速查。
+
+---
+
 ## 原理
 
 ```
