@@ -92,7 +92,7 @@ python scripts/extract_figures.py paper.pdf crop --page 9 --relative 0.21,0.13,0
 ### 3. 写 deck.json
 
 内容全部放在一个 JSON 里，脚本只负责排版。**先写文案，再调版式**。  
-完整字段说明见 `references/style-spec.md`，可直接抄 `examples/dynamic-resource-manager/deck.json`。
+完整字段说明见 `references/style-spec.md`，行内标记与版式常量都以它为准。
 
 ```json
 {

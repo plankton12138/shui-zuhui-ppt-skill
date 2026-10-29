@@ -2,8 +2,6 @@
 
 > 一篇论文进去，一盏茶的工夫，一份看起来读了一个礼拜的组会汇报出来——白底、无装饰、红字点睛、原图直入，附逐页讲稿。
 
-![9 页示例](examples/dynamic-resource-manager/contact.png)
-
 ---
 
 ## 功能
@@ -153,8 +151,6 @@ shui-zuhui/
 │   ├── extract_figures.py        # list / text / page / auto / crop / images
 │   ├── build_deck.py             # deck.json → pptx
 │   └── render_deck.py            # pptx → PNG（PowerPoint COM / LibreOffice）
-└── examples/
-    └── dynamic-resource-manager/ # 完整示例：deck.json、图、成品、讲稿
 ```
 
 ---
@@ -179,8 +175,6 @@ shui-zuhui/
 
 ## 示例
 
-`examples/dynamic-resource-manager/` 是一篇真实论文的完整产物（计算连续体资源管理器，arXiv 2411.16697）：
+完整样例产物不随仓库分发。真实论文的一套标准产物包括：`deck.json` 文案 · `figs/` 裁好的原图 · `out.pptx` 成品 · `讲稿.md` 逐页口播 · `preview/` 逐页校验图。
 
-`deck.json` 文案 · `figs/` 六图一表 · `out.pptx` 成品 · `讲稿.md` 逐页口播 · `contact.png` 九页缩略图。
-
-换论文时让 agent 以该目录为模板，替换 `deck.json` 文案与图即可。
+换论文时让 agent 参照 [`references/style-spec.md`](references/style-spec.md) 与 [`SKILL.md`](SKILL.md) 的工作流从零生成即可，结构都是固定的。
