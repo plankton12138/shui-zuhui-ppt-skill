@@ -42,99 +42,9 @@ out.pptx      9 页左右的汇报稿
 
 ---
 
-## 安装
-
-### 一句话安装（发给你的 agent 即可）
-
-把下面这句直接发给 agent（WorkBuddy / Claude Code 等），让模型自己完成安装：
-
-```text
-请安装 skill「shui-zuhui」：把仓库 https://github.com/plankton12138/shui-zuhui-ppt-skill 完整获取（git clone 或下载解压均可）到你的 skills 目录，然后在该目录执行 pip install -r requirements.txt，装好后读取 SKILL.md 并告诉我已就绪。
-```
-
-agent 会自行确认本机的 skills 目录位置、完成下载与依赖安装，并在读取 `SKILL.md` 后进入可用状态；之后说"帮我把这篇论文做成组会 PPT"即可触发。
-
-### 1. 装进 agent 工具的 skills 目录
-
-本 skill 是目录即安装：把整个 `shui-zuhui/` 文件夹放进目标 agent 工具的 skills 目录即可，agent 启动时会自动扫描并按 `SKILL.md` 的 description 匹配触发。
-
-| agent 工具                | 用户级目录（所有会话可用）                       | 项目级目录（仅当前项目可用）                         |
-| ----------------------- | ----------------------------------- | -------------------------------------- |
-| WorkBuddy               | `~/.workbuddy/skills/shui-zuhui`    | `<项目>/.workbuddy/skills/shui-zuhui`    |
-| WorkBuddy AI（CLI）       | `~/.workbuddy-ai/skills/shui-zuhui` | `<项目>/.workbuddy-ai/skills/shui-zuhui` |
-| Claude Code             | `~/.claude/skills/shui-zuhui`       | `<项目>/.claude/skills/shui-zuhui`       |
-| 其他兼容 Agent Skills 规范的工具 | 参见其文档中的 skills 目录约定                 | —                                      |
-
-安装方式任选其一：
-
-```bash
-# 方式 A：git clone（便于后续 git pull 升级）
-git clone https://github.com/plankton12138/shui-zuhui-ppt-skill ~/.workbuddy-ai/skills/shui-zuhui
-
-# 方式 B：直接拷贝文件夹
-cp -r /path/to/shui-zuhui ~/.workbuddy-ai/skills/shui-zuhui
-
-# 方式 C：软链接（一份源码多处生效，改源码立即生效）
-# Windows PowerShell（需管理员或开发者模式）：
-New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.workbuddy-ai\skills\shui-zuhui" -Target "C:\path\to\shui-zuhui"
-# macOS / Linux：
-ln -s /path/to/shui-zuhui ~/.workbuddy-ai/skills/shui-zuhui
-```
-
-多工具共用时不必拷多份——装一份到其中一个目录，其余目录用软链接（方式 C）指过去即可。
-
-### 2. 装依赖
-
-agent 运行本 skill 的脚本依赖 Python 3.9+：
-
-```bash
-pip install -r requirements.txt
-```
-
-`pymupdf`（读 PDF）、`python-pptx`（写 PPT）、`pillow`（量图片尺寸）、`pywin32`（Windows 下用 PowerPoint 导出预览图，可选）。
-
-### 3. 验证
-
-```bash
-# 脚本可用
-python scripts/extract_figures.py --help
-
-# agent 能识别：在对话里说"帮我把这篇论文做成组会 PPT"，命中即安装成功
-```
-
-若未命中触发词，检查该目录下 `SKILL.md` 是否存在、frontmatter 的 `name`/`description` 是否完整，并重启 agent 会话。
-
----
-
-## 快速开始
-
-```bash
-# 1. 看论文里有哪些图表
-python scripts/extract_figures.py paper.pdf list
-
-# 2. 裁图（按 caption 自动定位，400 dpi）
-python scripts/extract_figures.py paper.pdf auto --caption "Fig. 2" --out figs/fig2.png
-
-# 3. 写 deck.json（复制 examples 里那份改文案）
-
-# 4. 生成
-python scripts/build_deck.py deck.json -o out.pptx
-
-# 5. 渲成图逐页检查
-python scripts/render_deck.py out.pptx --outdir preview
-```
-
-遇到没有文字层的 PDF，`list` 会返回 `NO CAPTIONS FOUND`，改走渲染路线：
-
-```bash
-python scripts/extract_figures.py paper.pdf page --pages 1-12 --dpi 150 --outdir pages
-```
-
----
-
 ## 使用样例
 
-装好之后，主流用法是**对 agent 说一句话**（WorkBuddy / Claude Code 等，把路径换成你自己的）。下面这几种覆盖了绝大多数场景：
+用法只有一种：**对 agent 说一句话**（WorkBuddy / Claude Code 等，把路径换成你自己的）。读论文、裁图、排版、自查全由 agent 和脚本完成，不需要人手动跑任何代码。下面几种说法覆盖了绝大多数场景：
 
 ### 样例 1：最省事——丢个 PDF 就行
 
@@ -158,7 +68,7 @@ agent 全自动走完：读论文 → 裁原图 → 写文案 → 生成 pptx �
 
 > 第三页的现状对照，路线 B 换成 2024 年那篇 follow-up；第七页的图换成 Fig. 6。
 
-内容都在 `deck.json` 里，agent 改完重跑两条命令即可，版式不会乱——改十版也不漂。
+内容都在 `deck.json` 里，agent 改完重新生成即可，版式不会乱——改十版也不漂。
 
 ### 样例 5：强调色分工（红 + 蓝）
 
@@ -166,15 +76,21 @@ agent 全自动走完：读论文 → 裁原图 → 写文案 → 生成 pptx �
 
 对应到文案里的行内标记：`<r>缺陷</r>`、`<b>优势</b>`。红是默认重点，蓝只在需要区分两类信息时用。
 
-### 样例 6：绕过对话，直接命令行
+---
 
-```bash
-python scripts/extract_figures.py paper.pdf auto --caption "Fig. 3" --out figs/fig3.png
-python scripts/build_deck.py deck.json -o out.pptx
-python scripts/render_deck.py out.pptx --outdir preview
+## 安装
+
+把下面这句发给 agent（WorkBuddy / Claude Code 等）即可，**其余全部由 agent 自己完成**——下载、装依赖、验证都不需要人动手：
+
+```text
+请安装 skill「shui-zuhui」：把仓库 https://github.com/plankton12138/shui-zuhui-ppt-skill 完整获取（git clone 或下载解压均可）到你的 skills 目录，然后在该目录执行 pip install -r requirements.txt，装好后读取 SKILL.md 并告诉我已就绪。
 ```
 
-适合只想借排版引擎、文案自己写的场合——deck.json 的字段见下方速查。
+agent 安装时会自行处理这些细节：
+
+- **装到哪里** —— skills 目录即安装。WorkBuddy 为 `~/.workbuddy/skills/shui-zuhui`，WorkBuddy AI（CLI）为 `~/.workbuddy-ai/skills/shui-zuhui`，Claude Code 为 `~/.claude/skills/shui-zuhui`，其余兼容 Agent Skills 规范的工具按各自的 skills 目录约定；也可以装到项目级（如 `<项目>/.workbuddy/skills/`）只在单个项目生效
+- **装依赖** —— 要求 Python 3.9+，`pip install -r requirements.txt`：pymupdf（读 PDF）、python-pptx（写 PPT）、pillow（量图片尺寸）、pywin32（Windows 下导预览图，可选）
+- **验证** —— 读取 `SKILL.md` 确认 frontmatter 完整；之后说"帮我把这篇论文做成组会 PPT"能命中即成功，未命中就重启 agent 会话再试
 
 ---
 
@@ -267,4 +183,4 @@ shui-zuhui/
 
 `deck.json` 文案 · `figs/` 六图一表 · `out.pptx` 成品 · `讲稿.md` 逐页口播 · `contact.png` 九页缩略图。
 
-换论文时复制该目录，改 `deck.json` 与图，重跑两条命令即可。
+换论文时让 agent 以该目录为模板，替换 `deck.json` 文案与图即可。
