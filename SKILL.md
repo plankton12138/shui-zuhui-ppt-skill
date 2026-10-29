@@ -1,7 +1,7 @@
-\---  
-name: shui-zuhui  
-description: 水组会——把一篇论文（PDF）做成组会/文献汇报用的极简 PPT，并附逐页讲解稿。适用于"论文转 PPT""组会汇报""文献分享""paper presentation""读论文讲给别人听""水组会"等请求。产出为白底、无装饰、红字标重点、含原论文图表的中文 PPT。  
-\---
+---
+name: shui-zuhui
+description: 水组会——把一篇论文（PDF）做成组会/文献汇报用的极简 PPT，并附逐页讲解稿。适用于"论文转 PPT""组会汇报""文献分享""paper presentation""读论文讲给别人听""水组会"等请求。产出为白底、无装饰、红字标重点、含原论文图表的中文 PPT。
+---
 
 # 水组会 · 论文 → 组会 PPT
 
