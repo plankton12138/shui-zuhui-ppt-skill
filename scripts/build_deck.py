@@ -12,6 +12,8 @@ Design contract (see references/style-spec.md):
 Usage:
   python build_deck.py deck.json -o out.pptx
   python build_deck.py deck.json -o out.pptx --report
+  python build_deck.py deck.json --lint-only        # copy check only, no pptx
+  python build_deck.py 讲稿.md --lint-only         # check the speaker script too
 """
 import argparse
 import json
@@ -439,17 +441,112 @@ BUILDERS = {
 }
 
 
+# ---------------------------------------------------------------- copy lint
+# Banned "fluff" phrasing: contrast slogans, meta-commentary, empty praise.
+# Keep in sync with the 文案契约 section of references/story-guide.md.
+FLUFF_RULES = [
+    (re.compile(r"不是[^。；\n]{0,30}而是"), "对照式定义「不是…而是…」"),
+    (re.compile(r"并非[^。；\n]{0,30}而是"), "对照式定义「并非…而是…」"),
+    (re.compile(r"问题不在[^。；\n]{0,24}而在"), "对照式定义「问题不在…而在…」"),
+    (re.compile(r"不缺[^。；\n]{0,12}缺的是"), "对仗口号「不缺…缺的是…」"),
+    (re.compile(r"缺的不是"), "对照式定义「缺的不是…」"),
+    (re.compile(r"(?:^|[：:，,。；;\s])一句话[：:，,]"), "元话语起手「一句话：」"),
+    (re.compile(r"其实就一句话"), "元话语起手「其实就一句话」"),
+    (re.compile(r"说到底|归根结底|说白了|本质上|简单来说|值得注意的是|众所周知"), "空泛起手/总结词"),
+    (re.compile(r"关键在于|真正的(?:挑战|问题|难点|价值|瓶颈)|这才是"), "无依据的空评价"),
+    (re.compile(r"显著提升|效果显著|大幅提升|明显改善|有提升空间|仍有改进空间|值得关注"), "无量化的评价"),
+    (re.compile(r"——(?:这才是|说白了|本质上|归根结底)"), "破折号升华"),
+    # English equivalents (used by the paper-to-slides edition).
+    (re.compile(r"\bnot\s+(?!only\b)[^.;\n]{0,50}\bbut\b", re.I), "contrast slogan 'not ... but ...'"),
+    (re.compile(r"\b(?:in one sentence|the point is|at the end of the day|the bottom line is|in essence|the key is|the real challenge is|what matters is)\b", re.I),
+     "meta-commentary opener"),
+    (re.compile(r"\bsignificant(?:ly)?\s+(?:improv|better|faster|reduc)", re.I), "unquantified praise"),
+]
+
+# Values that are metadata or copied verbatim from the paper, not authored copy.
+SKIP_KEYS = {"image", "path", "images", "type", "side", "size", "caption",
+             "venue", "authors", "title_en", "lead_size", "footer_size",
+             "img_w", "text_w", "img_h"}
+TOP_LEVEL_SKIP = {"title"}          # paper's original title in the English edition
+
+
+def collect_copy(spec):
+    """Return (field, text) for every authored copy string in the deck spec."""
+    pairs = []
+
+    def walk(node, key=None, top=False):
+        if isinstance(node, str):
+            if key in SKIP_KEYS or (top and key in TOP_LEVEL_SKIP):
+                return
+            pairs.append((key or "text", node))
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, k, top)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key, top)
+
+    for k, v in spec.items():
+        walk(v, k, top=True)
+    return pairs
+
+
+def lint_copy(text):
+    """Return (line_no, line, reason, matched) for every banned phrase."""
+    hits = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for pattern, reason in FLUFF_RULES:
+            for m in pattern.finditer(line):
+                hits.append((lineno, line.strip()[:110], reason, m.group(0)))
+    return hits
+
+
+def report_hits(hits, source):
+    print(f"FLUFF DETECTED in {source}: {len(hits)} hit(s)", file=sys.stderr)
+    for lineno, snippet, reason, matched in hits:
+        print(f"  L{lineno} [{reason}] {matched!r}\n      {snippet}", file=sys.stderr)
+    print("Rewrite each hit as a checkable fact: concrete noun + number / condition / baseline.",
+          file=sys.stderr)
+    print("Rules: references/story-guide.md -> 文案契约. Escape hatch: --allow-fluff",
+          file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Build a minimal paper-reading deck from JSON.")
     ap.add_argument("spec")
-    ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("-o", "--out")
     ap.add_argument("--report", action="store_true", help="print per-slide layout report")
+    ap.add_argument("--lint-only", action="store_true",
+                    help="check the copy only; accepts deck.json, 讲稿.md or any .md/.txt")
+    ap.add_argument("--allow-fluff", action="store_true",
+                    help="skip the copy check (only when the phrasing is quoted from the paper)")
     args = ap.parse_args()
+    if not args.lint_only and not args.out:
+        ap.error("-o/--out is required unless --lint-only is used")
 
     spec_path = Path(args.spec).resolve()
-    root = spec_path.parent
-    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    raw = spec_path.read_text(encoding="utf-8")
+    plain_text = args.lint_only and spec_path.suffix.lower() in (".md", ".txt")
+    if plain_text:
+        lint_text = raw
+        spec = None
+    else:
+        try:
+            spec = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"invalid JSON in {spec_path}: {exc}")
+        lint_text = "\n".join(f"[{key}] {text}" for key, text in collect_copy(spec))
 
+    if not args.allow_fluff:
+        hits = lint_copy(lint_text)
+        if hits:
+            report_hits(hits, spec_path.name)
+            raise SystemExit(2)
+    if args.lint_only:
+        print(f"OK {spec_path.name}: no fluff detected")
+        return
+
+    root = spec_path.parent
     prs = Presentation()
     prs.slide_width = Inches(SLIDE_W)
     prs.slide_height = Inches(SLIDE_H)
