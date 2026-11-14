@@ -5,7 +5,7 @@
 Design contract (see references/style-spec.md):
   * 16:9, pure white background, black text, restrained accent colors
     (default red FF0000; optional blue 0070C0 as a second accent, max 2 accents)
-  * one 40pt title per slide, body 24pt (auto-shrinks to fit, never below 14pt)
+  * one 40pt title per slide, body 28pt preferred (auto-shrinks to fit, never below 14pt)\n  * sparse copy, but typography/spacing/figures fill the body area (no large empty lower half)
   * figures are the paper's own figures, cropped losslessly from the PDF
   * no theme shapes, no icons, no page numbers, no agenda/thanks slides
 
@@ -34,22 +34,26 @@ except ImportError:
 
 # ---------------------------------------------------------------- constants
 SLIDE_W, SLIDE_H = 13.333, 7.5
-MARGIN_L = 0.92
-MARGIN_R = 0.40
-TITLE_TOP = 0.50
+MARGIN_L = 0.70
+MARGIN_R = 0.50
+TITLE_TOP = 0.38
 TITLE_SIZE = 40
-BODY_TOP = 1.72
-BODY_BOTTOM = 7.02
-LINE_FACTOR = 1.30          # line height / font size
+BODY_TOP = 1.50
+BODY_BOTTOM = 7.22
+LINE_FACTOR = 1.30          # default line height / font size; also used as para.line_spacing
 FONT_ZH = "等线"
 FONT_EN = "等线"
+DEFAULT_LINE_SPACING = 1.30
+MIN_GAP_PT = 12
+MAX_GAP_PT = 160            # inter-item gap cap (~2.22 in); raised so 2–3 short bullets can still fill the body
+MAX_LINE_SPACING = 1.85
 
 BLACK = RGBColor(0x00, 0x00, 0x00)
 RED = RGBColor(0xFF, 0x00, 0x00)
 BLUE = RGBColor(0x00, 0x70, 0xC0)
 GREY = RGBColor(0x59, 0x59, 0x59)
 
-SIZE_LADDER = [26, 24, 22, 20, 18, 17, 16, 15, 14]
+SIZE_LADDER = [32, 30, 28, 26, 24, 22, 20, 18, 17, 16, 15, 14]
 
 TOKEN_RE = re.compile(r"(<rb>.*?</rb>|<bb>.*?</bb>|<r>.*?</r>|<b>.*?</b>|\*\*.*?\*\*)", re.S)
 EA_SUCCESSORS = ("a:cs", "a:sym", "a:hlinkClick", "a:hlinkMouseOver", "a:rtl", "a:extLst")
@@ -164,10 +168,10 @@ def clear_bullet(para):
 
 def add_para(tf, text, size, bullet=False, space_before=0, space_after=6,
              bold=False, color=BLACK, align=PP_ALIGN.LEFT, first=False,
-             line_spacing=1.0):
+             line_spacing=None):
     para = tf.paragraphs[0] if first else tf.add_paragraph()
     para.alignment = align
-    para.line_spacing = line_spacing
+    para.line_spacing = DEFAULT_LINE_SPACING if line_spacing is None else line_spacing
     para.space_before = Pt(space_before)
     para.space_after = Pt(space_after)
     if bullet:
@@ -184,12 +188,100 @@ def add_para(tf, text, size, bullet=False, space_before=0, space_after=6,
 def block_height(blocks, width_in, size, gap_scale=1.0):
     width_pt = width_in * 72.0
     h = 0.0
-    for i, blk in enumerate(blocks):
+    for blk in blocks:
         sz = blk.get("sz", size)
+        ls = blk.get("line_spacing", DEFAULT_LINE_SPACING)
         lines = wrap_lines(plain(blk["t"]), width_pt - (26 if blk.get("b", True) else 0), sz)
-        h += lines * sz * LINE_FACTOR
-        h += blk.get("gap", 8 if blk.get("b", True) else 4) * gap_scale
+        h += blk.get("before", 0) * gap_scale
+        h += lines * sz * ls
+        h += blk.get("gap", MIN_GAP_PT if blk.get("b", True) else 8) * gap_scale
     return h / 72.0
+
+
+def apply_fill(blocks, width_in, height_in, size):
+    """Keep the copy unchanged; grow gaps and line-spacing so blocks fill height_in.
+
+    Low information density is achieved by writing less, not by leaving a large
+    empty lower half. Trailing gap after the last block is always 0.
+    """
+    if not blocks or height_in <= 0:
+        return blocks
+    for blk in blocks:
+        blk.setdefault("line_spacing", DEFAULT_LINE_SPACING)
+        if "gap" not in blk:
+            blk["gap"] = MIN_GAP_PT if blk.get("b", True) else 8
+    blocks[-1]["gap"] = 0
+
+    def current_h():
+        return block_height(blocks, width_in, size)
+
+    leftover_pt = (height_in - current_h()) * 72.0
+    if leftover_pt <= 6:
+        return blocks
+
+    slots = len(blocks) - 1
+
+    # 1) Stretch line-spacing first so type stays airy before gaps grow large.
+    if leftover_pt > 6:
+        width_pt = width_in * 72.0
+        line_pts = 0.0
+        for blk in blocks:
+            sz = blk.get("sz", size)
+            ls = blk.get("line_spacing", DEFAULT_LINE_SPACING)
+            lines = wrap_lines(plain(blk["t"]), width_pt - (26 if blk.get("b", True) else 0), sz)
+            line_pts += lines * sz * ls
+        if line_pts > 0:
+            factor = (line_pts + leftover_pt) / line_pts
+            for blk in blocks:
+                blk["line_spacing"] = min(
+                    blk["line_spacing"] * factor, MAX_LINE_SPACING
+                )
+            leftover_pt = (height_in - current_h()) * 72.0
+
+    # 2) Pour leftover into inter-item gaps (capped).
+    if leftover_pt > 6 and slots > 0:
+        even = leftover_pt / slots
+        for blk in blocks[:-1]:
+            blk["gap"] = min(blk["gap"] + even, MAX_GAP_PT)
+        leftover_pt = (height_in - current_h()) * 72.0
+
+    # 3) Last resort: ignore the cap so the last line sits on the body bottom.
+    if leftover_pt > 6 and slots > 0:
+        even = leftover_pt / slots
+        for blk in blocks[:-1]:
+            blk["gap"] += even
+    return blocks
+
+    slots = len(blocks) - 1
+    if slots > 0:
+        even = leftover_pt / slots
+        for blk in blocks[:-1]:
+            blk["gap"] = min(blk["gap"] + even, MAX_GAP_PT)
+        leftover_pt = (height_in - current_h()) * 72.0
+
+    if leftover_pt > 6:
+        width_pt = width_in * 72.0
+        line_pts = 0.0
+        for blk in blocks:
+            sz = blk.get("sz", size)
+            ls = blk.get("line_spacing", DEFAULT_LINE_SPACING)
+            lines = wrap_lines(plain(blk["t"]), width_pt - (26 if blk.get("b", True) else 0), sz)
+            line_pts += lines * sz * ls
+        if line_pts > 0:
+            factor = (line_pts + leftover_pt) / line_pts
+            for blk in blocks:
+                blk["line_spacing"] = min(
+                    blk["line_spacing"] * factor, MAX_LINE_SPACING
+                )
+            leftover_pt = (height_in - current_h()) * 72.0
+
+    # Last resort: pour any remainder into inter-item gaps so the last line
+    # lands on the body bottom. Filling the page outranks the gap cap.
+    if leftover_pt > 6 and slots > 0:
+        even = leftover_pt / slots
+        for blk in blocks[:-1]:
+            blk["gap"] += even
+    return blocks
 
 
 def fit_size(blocks, width_in, height_in, preferred=None):
@@ -212,9 +304,10 @@ def render_blocks(slide, blocks, left, top, width, height, size, anchor=MSO_ANCH
             blk.get("sz", size),
             bullet=blk.get("b", True),
             space_before=blk.get("before", 0),
-            space_after=blk.get("gap", 8 if blk.get("b", True) else 4),
+            space_after=blk.get("gap", MIN_GAP_PT if blk.get("b", True) else 8),
             align=blk.get("align", PP_ALIGN.LEFT),
             first=(i == 0),
+            line_spacing=blk.get("line_spacing", DEFAULT_LINE_SPACING),
         )
     return box
 
@@ -225,7 +318,7 @@ def add_title(slide, text):
     size = TITLE_SIZE
     while size > 26 and units * size > width_pt:
         size -= 2
-    box = add_textbox(slide, MARGIN_L, TITLE_TOP, SLIDE_W - MARGIN_L - MARGIN_R, 0.95)
+    box = add_textbox(slide, MARGIN_L, TITLE_TOP, SLIDE_W - MARGIN_L - MARGIN_R, 0.92)
     tf = box.text_frame
     add_para(tf, text, size, bullet=False, space_after=0, first=True)
     return box
@@ -270,20 +363,20 @@ def build_cover(prs, spec):
     slide = new_slide(prs)
     venue = spec.get("venue", "")
     if venue:
-        box = add_textbox(slide, 5.9, 0.38, SLIDE_W - 5.9 - 0.45, 0.75)
-        add_para(box.text_frame, venue, 14, bullet=False, space_after=0,
-                 align=PP_ALIGN.RIGHT, color=BLACK, first=True)
+        box = add_textbox(slide, 5.4, 0.42, SLIDE_W - 5.4 - 0.50, 0.55)
+        add_para(box.text_frame, venue, 16, bullet=False, space_after=0,
+                 align=PP_ALIGN.RIGHT, color=BLACK, first=True, line_spacing=1.15)
     title = f"《{spec['title_en']}》"
-    box = add_textbox(slide, 0.55, 2.05, SLIDE_W - 1.1, 2.05, MSO_ANCHOR.MIDDLE)
+    box = add_textbox(slide, 0.70, 1.55, SLIDE_W - 1.40, 2.70, MSO_ANCHOR.MIDDLE)
     add_para(box.text_frame, title, 38, bullet=False, space_after=0,
-             align=PP_ALIGN.CENTER, first=True, line_spacing=1.1)
+             align=PP_ALIGN.CENTER, first=True, line_spacing=1.2)
     if spec.get("title_zh"):
-        box = add_textbox(slide, 1.30, 4.42, SLIDE_W - 2.6, 1.55, MSO_ANCHOR.TOP)
-        add_para(box.text_frame, spec["title_zh"], 24, bullet=False, space_after=0,
-                 align=PP_ALIGN.CENTER, first=True, line_spacing=1.15)
+        box = add_textbox(slide, 1.10, 4.50, SLIDE_W - 2.20, 1.70, MSO_ANCHOR.MIDDLE)
+        add_para(box.text_frame, spec["title_zh"], 26, bullet=False, space_after=0,
+                 align=PP_ALIGN.CENTER, first=True, line_spacing=1.25)
     if spec.get("authors"):
-        box = add_textbox(slide, 1.30, 6.10, SLIDE_W - 2.6, 0.45)
-        add_para(box.text_frame, spec["authors"], 14, bullet=False, space_after=0,
+        box = add_textbox(slide, 1.10, 6.70, SLIDE_W - 2.20, 0.45)
+        add_para(box.text_frame, spec["authors"], 16, bullet=False, space_after=0,
                  align=PP_ALIGN.CENTER, color=GREY, first=True)
 
 
@@ -291,18 +384,17 @@ def build_points(prs, slide_spec, root=None):
     slide = new_slide(prs)
     add_title(slide, slide_spec["title"])
     top = BODY_TOP
+    width = SLIDE_W - MARGIN_L - MARGIN_R
+    blocks = []
     if slide_spec.get("lead"):
         lead_size = slide_spec.get("lead_size", 34)
-        lines = wrap_lines(plain(slide_spec["lead"]), (SLIDE_W - MARGIN_L - MARGIN_R) * 72, lead_size)
-        h = lines * lead_size * LINE_FACTOR / 72 + 0.18
-        box = add_textbox(slide, MARGIN_L, top - 0.04, SLIDE_W - MARGIN_L - MARGIN_R, h)
-        add_para(box.text_frame, slide_spec["lead"], lead_size, bullet=True,
-                 space_after=0, first=True)
-        top += h + 0.12
-    blocks = [{"t": t, "b": True} for t in slide_spec["bullets"]]
-    width = SLIDE_W - MARGIN_L - MARGIN_R
-    size = fit_size(blocks, width, BODY_BOTTOM - top, slide_spec.get("size"))
-    render_blocks(slide, blocks, MARGIN_L, top, width, BODY_BOTTOM - top, size)
+        blocks.append({"t": slide_spec["lead"], "b": True, "sz": lead_size, "gap": 20})
+    blocks.extend({"t": t, "b": True} for t in slide_spec.get("bullets", []))
+    height = BODY_BOTTOM - top
+    # Lead keeps its own size; body bullets pick the largest size that still fits.
+    size = fit_size(blocks, width, height, slide_spec.get("size", 32))
+    apply_fill(blocks, width, height, size)
+    render_blocks(slide, blocks, MARGIN_L, top, width, height, size)
     return size
 
 
@@ -311,26 +403,27 @@ def build_columns(prs, slide_spec, root=None):
     add_title(slide, slide_spec["title"])
     cols = slide_spec["columns"]
     n = len(cols)
-    gap = 0.45
+    gap = 0.40
     width = (SLIDE_W - MARGIN_L - MARGIN_R - gap * (n - 1)) / n
     top = BODY_TOP
     footer = slide_spec.get("footer")
-    limit = BODY_BOTTOM - (0.80 if footer else 0.02)
-    ends = []
+    fh = 0.70 if footer else 0.0
+    limit = BODY_BOTTOM - (fh + 0.16 if footer else 0.02)
     for i, col in enumerate(cols):
         left = MARGIN_L + i * (width + gap)
         y = top
         if col.get("head"):
-            head_size = col.get("head_size", 23)
+            head_size = col.get("head_size", 24)
             box = add_textbox(slide, left, y, width, head_size * 1.5 / 72)
             add_para(box.text_frame, col["head"], head_size, bullet=False,
                      space_after=0, bold=True, first=True)
-            y += head_size * 1.5 / 72 + 0.12
-        blocks = [{"t": t, "b": True, "gap": 6} for t in col["lines"]]
+            y += head_size * 1.5 / 72 + 0.14
+        blocks = [{"t": t, "b": True, "gap": MIN_GAP_PT} for t in col["lines"]]
         tail = col.get("tail")
         if tail:
-            blocks.append({"t": tail, "b": False, "gap": 2, "before": 10})
+            blocks.append({"t": tail, "b": False, "gap": 0, "before": 10})
         size = fit_size(blocks, width, limit - y, col.get("size"))
+        apply_fill(blocks, width, limit - y, size)
         box = render_blocks(slide, blocks, left, y, width, limit - y, size)
         if tail:
             # emphasise the closing verdict of each column, unless the tail
@@ -339,13 +432,11 @@ def build_columns(prs, slide_spec, root=None):
                 for p in box.text_frame.paragraphs[-1:]:
                     for r in p.runs:
                         r.font.color.rgb = RED
-        ends.append(y + block_height(blocks, width, size))
     if footer:
-        fh = 0.62
         blocks = [{"t": footer, "b": False, "gap": 0}]
         fsize = fit_size(blocks, SLIDE_W - MARGIN_L - MARGIN_R, fh,
-                         slide_spec.get("footer_size", 21))
-        fy = min(max(ends) + 0.30, BODY_BOTTOM - fh)
+                         slide_spec.get("footer_size", 22))
+        fy = BODY_BOTTOM - fh
         box = add_textbox(slide, MARGIN_L, fy, SLIDE_W - MARGIN_L - MARGIN_R, fh)
         add_para(box.text_frame, footer, fsize, bullet=False, space_after=0, first=True)
 
@@ -354,38 +445,49 @@ def build_figure(prs, slide_spec, root):
     slide = new_slide(prs)
     add_title(slide, slide_spec["title"])
     side = slide_spec.get("side", "right")
-    img_w = slide_spec.get("img_w", 8.10)
-    text_w = slide_spec.get("text_w", 3.95)
+    # Default widths fill the slide; leftover gap between image and text is tight.
+    img_w = slide_spec.get("img_w", 8.20)
+    text_w = slide_spec.get("text_w", 4.15)
+    gutter = 0.28
     if side == "right":
-        img_left, text_left = 0.28, 0.28 + img_w + 0.35
+        img_left, text_left = 0.28, 0.28 + img_w + gutter
     else:
         text_left, img_left = 0.28, SLIDE_W - 0.28 - img_w
-    img_top, img_h = BODY_TOP - 0.02, BODY_BOTTOM - BODY_TOP + 0.02
-    pic, rect = fit_picture(slide, root / slide_spec["image"], img_left, img_top, img_w, img_h)
+    cap_h = 0.28 if slide_spec.get("caption") else 0.0
+    img_top = BODY_TOP - 0.02
+    img_h = BODY_BOTTOM - img_top
+    pic, rect = fit_picture(
+        slide, root / slide_spec["image"], img_left, img_top, img_w, img_h - cap_h, "center"
+    )
     if slide_spec.get("caption"):
         add_caption(slide, slide_spec["caption"], img_left, rect[1] + rect[3] + 0.04, img_w, 11)
-    blocks = [{"t": t, "b": True, "gap": 7} for t in slide_spec["bullets"]]
-    size = fit_size(blocks, text_w, img_h - 0.25, slide_spec.get("size", 20))
-    render_blocks(slide, blocks, text_left, BODY_TOP, text_w, img_h - 0.25, size)
+    blocks = [{"t": t, "b": True} for t in slide_spec.get("bullets", [])]
+    text_h = img_h - 0.02
+    size = fit_size(blocks, text_w, text_h, slide_spec.get("size", 22))
+    apply_fill(blocks, text_w, text_h, size)
+    render_blocks(slide, blocks, text_left, BODY_TOP, text_w, text_h, size)
 
 
 def build_figure_stack(prs, slide_spec, root):
     slide = new_slide(prs)
     add_title(slide, slide_spec["title"])
     images = slide_spec["images"]
-    img_w = slide_spec.get("img_w", 7.45)
-    text_w = slide_spec.get("text_w", 4.30)
-    text_left = 0.28 + img_w + 0.30
+    img_w = slide_spec.get("img_w", 7.70)
+    text_w = slide_spec.get("text_w", 4.40)
+    text_left = 0.28 + img_w + 0.26
     top, bottom = BODY_TOP - 0.02, BODY_BOTTOM
-    gap = 0.10
+    gap = 0.12
     h = (bottom - top - gap * (len(images) - 1)) / len(images)
     for i, im in enumerate(images):
-        fit_picture(slide, root / im["path"], 0.28, top + i * (h + gap), img_w, h - 0.18, "left")
+        cap = 0.22 if im.get("caption") else 0.0
+        fit_picture(slide, root / im["path"], 0.28, top + i * (h + gap), img_w, h - cap, "left")
         if im.get("caption"):
-            add_caption(slide, im["caption"], 0.28, top + i * (h + gap) + h - 0.20, img_w, 11)
-    blocks = [{"t": t, "b": True, "gap": 7} for t in slide_spec["bullets"]]
-    size = fit_size(blocks, text_w, bottom - BODY_TOP, slide_spec.get("size", 18))
-    render_blocks(slide, blocks, text_left, BODY_TOP, text_w, bottom - BODY_TOP, size)
+            add_caption(slide, im["caption"], 0.28, top + i * (h + gap) + h - cap, img_w, 11)
+    blocks = [{"t": t, "b": True} for t in slide_spec.get("bullets", [])]
+    text_h = bottom - BODY_TOP
+    size = fit_size(blocks, text_w, text_h, slide_spec.get("size", 20))
+    apply_fill(blocks, text_w, text_h, size)
+    render_blocks(slide, blocks, text_left, BODY_TOP, text_w, text_h, size)
 
 
 def build_figure_pair(prs, slide_spec, root):
@@ -393,27 +495,37 @@ def build_figure_pair(prs, slide_spec, root):
     add_title(slide, slide_spec["title"])
     images = slide_spec["images"]
     n = len(images)
-    total_w = SLIDE_W - 0.6
-    gap = 0.45
+    total_w = SLIDE_W - 0.56
+    gap = 0.36
     cell = (total_w - gap * (n - 1)) / n
-    img_h = slide_spec.get("img_h", 3.05)
-    for i, im in enumerate(images):
-        left = 0.30 + i * (cell + gap)
-        fit_picture(slide, root / im["path"], left, BODY_TOP - 0.02, cell, img_h)
-        if im.get("caption"):
-            add_caption(slide, im["caption"], left, BODY_TOP - 0.02 + img_h + 0.02, cell, 11)
-    top = BODY_TOP - 0.02 + img_h + 0.32
-    blocks = [{"t": t, "b": True, "gap": 8} for t in slide_spec["bullets"]]
-    width = min(SLIDE_W - 2 * MARGIN_L, slide_spec.get("text_w", 11.5))
+    blocks = [{"t": t, "b": True} for t in slide_spec.get("bullets", [])]
+    width = min(SLIDE_W - MARGIN_L - MARGIN_R, slide_spec.get("text_w", 12.1))
     left = MARGIN_L
-    size = fit_size(blocks, width, BODY_BOTTOM - top, slide_spec.get("size", 20))
-    render_blocks(slide, blocks, left, top, width, BODY_BOTTOM - top, size)
+    cap_h = 0.28 if any(im.get("caption") for im in images) else 0.0
+    text_gap = 0.16
+    # Give leftover vertical space to the figures; bullets keep a tight minimum.
+    pref = slide_spec.get("size", 22)
+    min_text_h = block_height(blocks, width, pref) if blocks else 0.0
+    min_text_h = max(min_text_h, 0.55 if blocks else 0.0)
+    auto_img_h = BODY_BOTTOM - (BODY_TOP - 0.02) - cap_h - text_gap - min_text_h
+    img_h = slide_spec.get("img_h", max(2.50, auto_img_h))
+    for i, im in enumerate(images):
+        img_left = 0.28 + i * (cell + gap)
+        fit_picture(slide, root / im["path"], img_left, BODY_TOP - 0.02, cell, img_h)
+        if im.get("caption"):
+            add_caption(slide, im["caption"], img_left, BODY_TOP - 0.02 + img_h + 0.02, cell, 11)
+    top = BODY_TOP - 0.02 + img_h + cap_h + text_gap
+    text_h = max(0.4, BODY_BOTTOM - top)
+    size = fit_size(blocks, width, text_h, pref)
+    apply_fill(blocks, width, text_h, size)
+    if blocks:
+        render_blocks(slide, blocks, left, top, width, text_h, size)
 
 
 def build_two_col(prs, slide_spec, root=None):
     slide = new_slide(prs)
     add_title(slide, slide_spec["title"])
-    gap = 0.55
+    gap = 0.45
     width = (SLIDE_W - MARGIN_L - MARGIN_R - gap) / 2
     for i, key in enumerate(("left", "right")):
         col = slide_spec.get(key)
@@ -422,13 +534,15 @@ def build_two_col(prs, slide_spec, root=None):
         left = MARGIN_L + i * (width + gap)
         y = BODY_TOP
         if col.get("head"):
-            box = add_textbox(slide, left, y, width, 0.45)
-            add_para(box.text_frame, col["head"], 22, bullet=False, space_after=0,
+            box = add_textbox(slide, left, y, width, 0.48)
+            add_para(box.text_frame, col["head"], 24, bullet=False, space_after=0,
                      bold=True, first=True)
-            y += 0.50
-        blocks = [{"t": t, "b": True, "gap": 6} for t in col["bullets"]]
-        size = fit_size(blocks, width, BODY_BOTTOM - y, slide_spec.get("size", 20))
-        render_blocks(slide, blocks, left, y, width, BODY_BOTTOM - y, size)
+            y += 0.52
+        blocks = [{"t": t, "b": True} for t in col.get("bullets", [])]
+        height = BODY_BOTTOM - y
+        size = fit_size(blocks, width, height, slide_spec.get("size", 22))
+        apply_fill(blocks, width, height, size)
+        render_blocks(slide, blocks, left, y, width, height, size)
 
 
 BUILDERS = {
